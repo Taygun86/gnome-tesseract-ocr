@@ -13,6 +13,11 @@ export default class OcrScreenshotExtension extends Extension {
         this._openOverride = false;
         this._originalOpen = null;
 
+        if (!GLib.find_program_in_path('tesseract')) {
+            console.error(`[${this.metadata.uuid}] Tesseract OCR is not installed. Please install it from: https://github.com/tesseract-ocr/tesseract`);
+            return;
+        }
+
         if (Main.screenshotUI) {
             this._patchScreenshotUI(Main.screenshotUI);
         }
