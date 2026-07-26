@@ -12,9 +12,8 @@ export default class OcrScreenshotExtension extends Extension {
         this._ocrCancellable = null;
         this._openOverride = false;
         this._originalOpen = null;
-        this._tesseractAvailable = !!GLib.find_program_in_path('tesseract');
 
-        if (!this._tesseractAvailable) {
+        if (!GLib.find_program_in_path('tesseract')) {
             console.error(`[${this.metadata.uuid}] Tesseract OCR is not installed. Please install it from: https://github.com/tesseract-ocr/tesseract`);
             return;
         }
@@ -238,8 +237,7 @@ export default class OcrScreenshotExtension extends Extension {
 
             return langs.join('+');
         } catch (e) {
-            if (this._tesseractAvailable)
-                console.error(`[${this.metadata.uuid}] Failed to get langs: ${e.message}`);
+            console.error(`[${this.metadata.uuid}] Failed to get langs: ${e.message}`);
         }
         return 'eng';
     }
@@ -281,8 +279,7 @@ export default class OcrScreenshotExtension extends Extension {
                     }
                 } catch (e) {
                     if (!e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) {
-                        if (this._tesseractAvailable)
-                            console.error(`[${this.metadata.uuid}] Tesseract failed: ${e.message}`);
+                        console.error(`[${this.metadata.uuid}] Tesseract failed: ${e.message}`);
                     }
                 } finally {
                     // Delete the temporary screenshot file if OCR mode was used
@@ -299,8 +296,7 @@ export default class OcrScreenshotExtension extends Extension {
                 }
             });
         } catch (e) {
-            if (this._tesseractAvailable)
-                console.error(`[${this.metadata.uuid}] Failed to launch subprocess: ${e.message}`);
+            console.error(`[${this.metadata.uuid}] Failed to launch subprocess: ${e.message}`);
         }
     }
 

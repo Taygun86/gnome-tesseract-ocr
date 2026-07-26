@@ -13,16 +13,6 @@ export default class OcrScreenshotPreferences extends ExtensionPreferences {
 
         let wrapper;
 
-        if (!GLib.find_program_in_path('tesseract')) {
-            const statusPage = new Adw.StatusPage({
-                icon_name: 'dialog-warning-symbolic',
-                title: _('Tesseract OCR Not Found'),
-                description: _('Please install Tesseract OCR to use this extension.\nhttps://github.com/tesseract-ocr/tesseract'),
-            });
-            page.add(statusPage);
-            return;
-        }
-
         // Get installed list
         let installedLangs = [];
         try {
