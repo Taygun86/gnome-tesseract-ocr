@@ -1,11 +1,11 @@
 {
-    "uuid": "screenshot-ocr@taygun86",
+    "uuid": "tesseract-ocr@taygun86",
     "name": "Tesseract OCR",
     "description": "Run OCR on screenshots and copy text to clipboard",
     "shell-version": [
         "49",
         "50"
     ],
-    "settings-schema": "org.gnome.shell.extensions.screenshot-ocr",
-    "url": "https://github.com/Taygun86/gnome-screenshot-ocr"
+    "settings-schema": "org.gnome.shell.extensions.tesseract-ocr",
+    "url": "https://github.com/Taygun86/gnome-tesseract-ocr"
 }
