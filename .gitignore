@@ -6,3 +6,4 @@ Thumbs.db
 *.tmp
 .idea/
 .vscode/
+schemas/gschemas.compiled

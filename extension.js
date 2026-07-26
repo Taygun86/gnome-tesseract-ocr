@@ -8,7 +8,7 @@ import { ScreenshotUI } from 'resource:///org/gnome/shell/ui/screenshot.js';
 
 export default class OcrScreenshotExtension extends Extension {
     enable() {
-        this._signalId = 0;
+        this._screenshotConnected = false;
         this._ocrCancellable = null;
         this._openOverride = false;
         this._originalOpen = null;
@@ -31,9 +31,9 @@ export default class OcrScreenshotExtension extends Extension {
 
     _patchScreenshotUI(ui) {
         // 1. Signal triggered when a screenshot is taken
-        if (!this._signalId) {
+        if (!this._screenshotConnected) {
             console.debug(`[${this.metadata.uuid}] Connecting to screenshot-taken signal`);
-            this._signalId = ui.connect('screenshot-taken', (_ui, file) => {
+            ui.connectObject('screenshot-taken', (_ui, file) => {
                 let isOcrCapture = ui._isOcrCapture; // Custom mode flag
                 ui._isOcrCapture = false; // Reset to default
 
@@ -41,7 +41,8 @@ export default class OcrScreenshotExtension extends Extension {
                     // Process the screenshot file and delete it afterwards
                     this._runTesseract(file.get_path(), true);
                 }
-            });
+            }, this);
+            this._screenshotConnected = true;
         }
 
         // 2. Create and position the button only once
@@ -113,16 +114,22 @@ export default class OcrScreenshotExtension extends Extension {
                 ui._updatingModes = false;
             };
 
-            ui._ocrButton.connect('clicked', () => setMode('ocr'));
+            ui._ocrButton.connectObject('clicked', () => setMode('ocr'), this);
 
             // Disable OCR mode when Camera or Video modes are explicitly selected
             if (ui._shotButton) {
-                ui._shotButton.connect('clicked', () => setMode('shot'));
-                ui._shotButton.connect('notify::checked', updateVisuals); // GNOME overrides check
+                ui._shotButton.connectObject(
+                    'clicked', () => setMode('shot'),
+                    'notify::checked', updateVisuals,
+                    this
+                );
             }
             if (ui._castButton) {
-                ui._castButton.connect('clicked', () => setMode('cast'));
-                ui._castButton.connect('notify::checked', updateVisuals); // GNOME overrides check
+                ui._castButton.connectObject(
+                    'clicked', () => setMode('cast'),
+                    'notify::checked', updateVisuals,
+                    this
+                );
             }
 
             // Add the OCR button to the toggle container
@@ -172,7 +179,7 @@ export default class OcrScreenshotExtension extends Extension {
             };
 
             if (ui._selectionButton) {
-                ui._selectionButton.connect('notify::checked', updateVisibility);
+                ui._selectionButton.connectObject('notify::checked', updateVisibility, this);
                 updateVisibility();
             } else {
                 console.warn(`[${this.metadata.uuid}] ui._selectionButton not found!`);
@@ -180,7 +187,7 @@ export default class OcrScreenshotExtension extends Extension {
         }
     }
 
-    _getInstalledLangs() {
+    async _getInstalledLangs() {
         let settings = this.getSettings();
         let userVal = settings.get_user_value('languages');
 
@@ -190,36 +197,54 @@ export default class OcrScreenshotExtension extends Extension {
 
         // Fallback options if no settings saved yet:
         try {
-            let [ok, stdout, stderr] = GLib.spawn_command_line_sync('tesseract --list-langs');
-            if (ok && stdout) {
-                let output = new TextDecoder().decode(stdout);
-                let lines = output.split('\n');
-                let langs = lines.slice(1)
-                    .map(l => l.trim())
-                    .filter(l => l && l !== 'osd');
+            let proc = new Gio.Subprocess({
+                argv: ['tesseract', '--list-langs'],
+                flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+            });
+            proc.init(null);
 
-                let engIndex = langs.indexOf('eng');
-                if (engIndex !== -1) {
-                    langs.splice(engIndex, 1);
-                    langs.push('eng');
-                }
+            let stdout = await new Promise((resolve, reject) => {
+                proc.communicate_utf8_async(null, null, (proc, res) => {
+                    try {
+                        let [ok, stdout, stderr] = proc.communicate_utf8_finish(res);
+                        if (ok && stdout) {
+                            resolve(stdout);
+                        } else {
+                            reject(new Error(stderr || 'Failed to list languages'));
+                        }
+                    } catch (e) {
+                        reject(e);
+                    }
+                });
+            });
 
-                return langs.join('+');
+            let text = stdout.trim();
+            let lines = text.split('\n');
+            let langs = lines.slice(1)
+                .map(l => l.trim())
+                .filter(l => l && l !== 'osd');
+
+            let engIndex = langs.indexOf('eng');
+            if (engIndex !== -1) {
+                langs.splice(engIndex, 1);
+                langs.push('eng');
             }
+
+            return langs.join('+');
         } catch (e) {
             console.error(`[${this.metadata.uuid}] Failed to get langs: ${e.message}`);
         }
         return 'eng';
     }
 
-    _runTesseract(filePath, shouldDelete = false) {
+    async _runTesseract(filePath, shouldDelete = false) {
         try {
             if (this._ocrCancellable) {
                 this._ocrCancellable.cancel();
             }
             this._ocrCancellable = new Gio.Cancellable();
 
-            let allLangs = this._getInstalledLangs();
+            let allLangs = await this._getInstalledLangs();
 
             let argv = ['tesseract', filePath, 'stdout'];
             if (allLangs) {
@@ -228,7 +253,7 @@ export default class OcrScreenshotExtension extends Extension {
 
             let proc = new Gio.Subprocess({
                 argv: argv,
-                flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
             });
 
             proc.init(this._ocrCancellable);
@@ -243,7 +268,7 @@ export default class OcrScreenshotExtension extends Extension {
                             this._copyToClipboard(text);
                         }
                     } else {
-                        if (!stderr.includes('Interrupted system call')) {
+                        if (stderr && !stderr.includes('Interrupted system call')) {
                             console.debug(`[${this.metadata.uuid}] Tesseract stderr: ${stderr}`);
                         }
                     }
@@ -257,7 +282,7 @@ export default class OcrScreenshotExtension extends Extension {
                         try {
                             let file = Gio.File.new_for_path(filePath);
                             if (file.query_exists(null)) {
-                                file.delete(null);
+                                file.delete_async(GLib.PRIORITY_DEFAULT, null, null);
                             }
                         } catch (err) {
                             console.warn(`[${this.metadata.uuid}] Failed to delete temp file: ${err.message}`);
@@ -282,17 +307,28 @@ export default class OcrScreenshotExtension extends Extension {
         }
 
         if (Main.screenshotUI) {
-            if (this._signalId) {
-                Main.screenshotUI.disconnect(this._signalId);
-                this._signalId = 0;
-            }
+            Main.screenshotUI.disconnectObject(this);
 
-            // Remove the added button
             if (Main.screenshotUI._ocrButton) {
+                Main.screenshotUI._ocrButton.disconnectObject(this);
                 Main.screenshotUI._ocrButton.destroy();
                 Main.screenshotUI._ocrButton = null;
             }
+
+            if (Main.screenshotUI._shotButton) {
+                Main.screenshotUI._shotButton.disconnectObject(this);
+            }
+
+            if (Main.screenshotUI._castButton) {
+                Main.screenshotUI._castButton.disconnectObject(this);
+            }
+
+            if (Main.screenshotUI._selectionButton) {
+                Main.screenshotUI._selectionButton.disconnectObject(this);
+            }
         }
+
+        this._screenshotConnected = false;
 
         if (this._openOverride) {
             if (ScreenshotUI.prototype.open === this._myOpenWrapper) {
